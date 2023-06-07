@@ -34,6 +34,12 @@ class AnswerInNoAnswers(BaseFilter):
         return callback.data in all_animal
 
 
+class AnswerInNo2Answers(BaseFilter):
+    async def __call__(self, callback: CallbackQuery) -> bool:
+        all_animal = await database.no_2_answers()
+        return callback.data in all_animal
+
+
 class AnimalInAnimalsMessage(BaseFilter):
     async def __call__(self, message: Message) -> bool:
         all_animal = await database.all_animal_cb()
@@ -50,6 +56,12 @@ class NumberInAquariumNumbers(BaseFilter):
     async def __call__(self, message: Message) -> bool:
         all_aquariums = await database.all_aquarium_numbers()
         return message.text in all_aquariums
+
+
+class NumberInAquariumNumbersCb(BaseFilter):
+    async def __call__(self, callback: CallbackQuery) -> bool:
+        all_aquariums = await database.all_aquarium_numbers()
+        return callback.data in all_aquariums
 
 
 class AnimalInQuestionsMessage(BaseFilter):

@@ -12,7 +12,7 @@ from states.states import (FSMAnimalForm, FSMInsertAnimalAquarium,
 
 import database
 
-from filters.filters import AnimalInAnimalsMessage, AnimalInAnimalNames, AnimalInQuestionsMessage
+from filters.filters import AnimalInQuestionsMessage, AnimalInAnimalsMessage
 
 
 router: Router = Router()
@@ -32,7 +32,7 @@ async def process_callback_animal_command(callback: CallbackQuery, state: FSMCon
 @router.message(Command(commands='cancel'), ~StateFilter(default_state))
 async def process_cancel_command_state(message: Message, state: FSMContext):
     await message.answer(text='Вы вышли из машины состояний\n\n'
-                              'Чтобы снова перейти к заполнению анкеты - '
+                              'Чтобы снова перейти к изменению базы - '
                               'отправьте текст "Обновить базу"')
     # Сбрасываем состояние
     await state.clear()
@@ -332,19 +332,9 @@ async def process_wrong_answers(message: Message):
 async def process_correct_answers_take(message: Message, state: FSMContext):
     # Cохраняем правильный ответ в хранилище по ключу "yes_answer"
     await state.update_data(yes_answer=message.text)
-    await message.answer(text='Спасибо!\n\nТеперь введите транслит текст в формате:'
-                              '"yes_&ltтранслит имя животного, которое было дано на первом шаге&gt" ')
-    # Устанавливаем состояние ожидания текста для callback
-    await state.set_state(FSCMQuestionInsert.fill_correct_callback)
-
-
-# Этот хендлер срабатывает, если введен текст для yes_callback,
-# записывает его и спрашивает, есть ли неправильные ответы
-@router.message(StateFilter(FSCMQuestionInsert.fill_correct_callback))
-async def process_correct_callback_take(message: Message, state: FSMContext):
-    # Cохраняем yes_callback в хранилище
-    await state.update_data(yes_callback=message.text)
-    # Создаем объекты инлайн-кнопок
+    y_dict = await state.get_data()
+    yes_name = 'yes_' + y_dict["callback_name"]
+    await state.update_data(yes_callback=yes_name)
     yes_button = InlineKeyboardButton(text='Да',
                                       callback_data='yes_wrong_answer')
     no_button = InlineKeyboardButton(text='Нет',
@@ -396,17 +386,29 @@ async def process_yes_wrong_answers(callback: CallbackQuery, state: FSMContext):
 async def process_correct_answers_take(message: Message, state: FSMContext):
     # Cохраняем правильный ответ в хранилище по ключу "no_answer"
     await state.update_data(no_answer=message.text)
-    await message.answer(text='Спасибо!\n\nОсталось ввести транслит текст в формате:'
-                              '"no_&ltтранслит имя животного, которое было дано на первом шаге&gt" ')
-    # Устанавливаем состояние ожидания текста для callback
-    await state.set_state(FSCMQuestionInsert.fill_wrong_callback)
+    n_dict = await state.get_data()
+    no_name = 'no_' + n_dict["callback_name"]
+    await state.update_data(no_callback=no_name)
+    yes_button = InlineKeyboardButton(text='Да',
+                                      callback_data='yes_wrong_answer')
+    no_button = InlineKeyboardButton(text='Нет',
+                                     callback_data='no_wrong_answer')
+    # Добавляем кнопки в клавиатуру (две в одном ряду)
+    keyboard: list[list[InlineKeyboardButton]] = [[yes_button, no_button]]
+    # Создаем объект инлайн-клавиатуры
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await message.answer(text='Спасибо!\n\nЕсть ли ещё неправильные варианты '
+                              'ответов к этому вопросу?',
+                         reply_markup=markup)
+    # Устанавливаем состояние ожидания выбора
+    await state.set_state(FSCMQuestionInsert.fill_wrong_answer_choice_2)
 
 
-# Этот хэндлер будет срабатывать на ввод no_callback,
-# записывать данные в БД и выходить из машины состояний
-@router.message(StateFilter(FSCMQuestionInsert.fill_wrong_callback))
-async def process_question_end(message: Message, state: FSMContext):
-    await state.update_data(no_callback=message.text)
+# Этот хэндлер будет срабатывать на нажатие кнопки "Нет" при вопросе будут ли
+# неправильные варианты ответа, записывать данные в БД и выходить из машины состояний
+@router.callback_query(Text(text='no_wrong_answer'),
+                       StateFilter(FSCMQuestionInsert.fill_wrong_answer_choice_2))
+async def process_no_2_wrong_answers_end(callback: CallbackQuery, state: FSMContext):
     qt_dict = await state.get_data()
     # Завершаем машину состояний
     an_id = await database.animal_id_by_callback(qt_dict["callback_name"])
@@ -414,6 +416,42 @@ async def process_question_end(message: Message, state: FSMContext):
           qt_dict["question"], qt_dict["answer"],
           qt_dict["yes_answer"], qt_dict["yes_callback"],
           qt_dict["no_answer"], qt_dict["no_callback"])
+
+    await database.add_question_with_two_answer(qt)
+
+    await state.clear()
+    await callback.message.answer(text='Вопрос внесен в базу')
+
+
+# Этот хэндлер будет срабатывать на нажатие кнопки "Да" при вопросе будут ли
+# ещё неправильные ответы на вопрос и спрашивать этот неправильный ответ
+@router.callback_query(Text(text='yes_wrong_answer'),
+                       StateFilter(FSCMQuestionInsert.fill_wrong_answer_choice_2))
+async def process_yes_wrong_2_answers(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await callback.message.answer(text='Тогда введите ещё одно сообщение, которое будет получать пользователь, '
+                                       'если ответит неправильно')
+    # Устанавливаем состояние ожидания послания на неправильный ответ
+    await state.set_state(FSCMQuestionInsert.fill_wrong_answer_2)
+
+
+# Этот хендлер срабатывает, если введен второй неправильный ответ,
+# записывает его и просит callback для кнопки правильного ответа
+@router.message(StateFilter(FSCMQuestionInsert.fill_wrong_answer_2))
+async def process_correct_answers_take(message: Message, state: FSMContext):
+    # Cохраняем правильный ответ в хранилище по ключу "no_2_answer"
+    await state.update_data(no_2_answer=message.text)
+    n2_dict = await state.get_data()
+    no2_name = 'no_2_' + n2_dict["callback_name"]
+    await state.update_data(no2_callback=no2_name)
+    qt_dict = await state.get_data()
+    # Завершаем машину состояний
+    an_id = await database.animal_id_by_callback(qt_dict["callback_name"])
+    qt = (int(an_id), qt_dict["callback_name"],
+          qt_dict["question"], qt_dict["answer"],
+          qt_dict["yes_answer"], qt_dict["yes_callback"],
+          qt_dict["no_answer"], qt_dict["no_callback"],
+          qt_dict["no_2_answer"], qt_dict["no2_callback"])
 
     await database.add_question(qt)
 
@@ -438,7 +476,7 @@ async def process_callback_del_animal(callback: CallbackQuery, state: FSMContext
 async def process_aq_number_sent(message: Message, state: FSMContext):
     # Cохраняем данные о номере аквариума по ключу "aq_number"
     await state.update_data(aq_number=int(message.text))
-    await message.answer(text='Спасибо!\n\nВведите название животного с заглавной буквы')
+    await message.answer(text='Спасибо!\n\nВведите транслит название животного')
     # Устанавливаем состояние ожидания названия животного
     await state.set_state(FSMDelAnimalAquarium.fill_animal)
 
@@ -457,13 +495,13 @@ async def warning_not_number(message: Message):
 # и отправлять полученные данные в базу, удалять животного из аквариума
 # и выходить из машины состояний
 @router.message(StateFilter(FSMDelAnimalAquarium.fill_animal),
-                AnimalInAnimalNames())
+                AnimalInAnimalsMessage())
 async def process_animal_name_sent(message: Message, state: FSMContext):
     # Cохраняем данные о животном по ключу "animal_name"
     await state.update_data(animal_name=message.text)
     del_dict = await state.get_data()
     # Завершаем машину состояний
-    an_id = await database.animal_id_by_name(del_dict["animal_name"])
+    an_id = await database.animal_id_by_callback(del_dict["animal_name"])
     dl = (int(del_dict["aq_number"]), int(an_id))
 
     await database.del_animal_from_aq(dl)
@@ -476,8 +514,8 @@ async def process_animal_name_sent(message: Message, state: FSMContext):
 # будет введено/отправлено что-то некорректное
 @router.message(StateFilter(FSMDelAnimalAquarium.fill_animal))
 async def warning_not_name(message: Message):
-    await message.answer(text='Пожалуйста, введите название животного из базы '
-                              'с заглавной буквы.\n\nЕсли вы хотите '
+    await message.answer(text='Пожалуйста, введите транслит название животного из базы'
+                              '.\n\nЕсли вы хотите '
                               'прервать процесс - отправьте '
                               'команду /cancel')
 
@@ -499,7 +537,7 @@ async def process_callback_add_animal(callback: CallbackQuery, state: FSMContext
 async def process_aq_number_sent(message: Message, state: FSMContext):
     # Cохраняем данные о номере аквариума по ключу "aq_number"
     await state.update_data(aq_number=int(message.text))
-    await message.answer(text='Спасибо!\n\nВведите название животного с большой буквы')
+    await message.answer(text='Спасибо!\n\nВведите транслит название животного')
     # Устанавливаем состояние ожидания названия животного
     await state.set_state(FSMInsertAnimalAquarium.fill_animal)
 
@@ -518,13 +556,13 @@ async def warning_not_number(message: Message):
 # и отправлять полученные данные в базу, удалять животного из аквариума
 # и выходить из машины состояний
 @router.message(StateFilter(FSMInsertAnimalAquarium.fill_animal),
-                AnimalInAnimalNames())
+                AnimalInAnimalsMessage())
 async def process_animal_name_sent(message: Message, state: FSMContext):
     # Cохраняем данные о животном по ключу "animal_name"
     await state.update_data(animal_name=message.text)
     ins_dict = await state.get_data()
     # Завершаем машину состояний
-    an_id = await database.animal_id_by_name(ins_dict["animal_name"])
+    an_id = await database.animal_id_by_callback(ins_dict["animal_name"])
     ins = (int(an_id), int(ins_dict["aq_number"]))
 
     await database.ins_animal_into_aq(ins)
@@ -544,20 +582,19 @@ async def warning_not_name(message: Message):
 
 
 # Этот хэндлер будет срабатывать на нажатие кнопки "Изменить информацию о животном"
-# и переводить бота в состояние ожидания ввода номера аквариума
+# и переводить бота в состояние ожидания ввода названия животного
 @router.callback_query(Text(text='update_animal_info'), StateFilter(default_state))
 async def process_callback_update_animal(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(text='Введите с заглавной буквы название животного, '
-                                       'информацияю о котором Вы хотите изменить')
+    await callback.message.answer(text='Введите транслит название животного, '
+                                       'информацию о котором Вы хотите изменить')
     # Устанавливаем состояние ожидания ввода номера аквариума
     await state.set_state(FSMUpdateAnimal.fill_animal_name)
 
 
-# Этот хэндлер будет срабатывать, если введно правильное название животного
-# и отправлять полученные данные в базу, удалять животного из аквариума
-# и выходить из машины состояний
+# Этот хэндлер будет срабатывать, если введно правильное транслит название животного
+# и отправлять полученные данные в базу, переходить к выбору информации, которую будем менять
 @router.message(StateFilter(FSMUpdateAnimal.fill_animal_name),
-                AnimalInAnimalNames())
+                AnimalInAnimalsMessage())
 async def process_animal_name_sent(message: Message, state: FSMContext):
     # Cохраняем данные о животном по ключу "animal_name"
     await state.update_data(animal_name=message.text)
@@ -585,8 +622,8 @@ async def process_animal_name_sent(message: Message, state: FSMContext):
 # будет введено/отправлено что-то некорректное
 @router.message(StateFilter(FSMUpdateAnimal.fill_animal_name))
 async def warning_not_name(message: Message):
-    await message.answer(text='Пожалуйста, введите название животного из базы '
-                              'с большой буквы.\n\nЕсли вы хотите '
+    await message.answer(text='Пожалуйста, введите транслит название животного из базы'
+                              '.\n\nЕсли вы хотите '
                               'прервать процесс - отправьте '
                               'команду /cancel')
 
@@ -609,7 +646,7 @@ async def process_new_animal_name_sent(message: Message, state: FSMContext):
     await state.update_data(new_animal_name=message.text)
     ins_dict = await state.get_data()
     # Завершаем машину состояний
-    an_id = await database.animal_id_by_name(ins_dict["animal_name"])
+    an_id = await database.animal_id_by_callback(ins_dict["animal_name"])
     ins = (int(an_id), ins_dict["new_animal_name"])
 
     await database.update_animal_name(ins)

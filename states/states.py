@@ -45,10 +45,10 @@ class FSCMQuestionInsert(StatesGroup):
     fill_answer_choice = State()
     fill_answer = State()
     fill_correct_answer = State()
-    fill_correct_callback = State()
     fill_wrong_answer_choice = State()
     fill_wrong_answer = State()
-    fill_wrong_callback = State()
+    fill_wrong_answer_choice_2 = State()
+    fill_wrong_answer_2 = State()
 
 
 class FSMUpdateAnimal(StatesGroup):
@@ -62,3 +62,7 @@ class FSMUpdateAnimal(StatesGroup):
 
 class FSMDeleteQuestion(StatesGroup):
     fill_animal_name = State()
+
+
+class FSMUser(StatesGroup):
+    fill_animal = State()

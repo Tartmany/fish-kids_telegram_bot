@@ -37,10 +37,16 @@ async def add_question_with_one_answer(qt: tuple) -> int:
     VALUES($1, $2, $3, $4, $5, $6)''', *qt, execute=True)
 
 
-async def add_question(qt: tuple) -> int:
+async def add_question_with_two_answer(qt: tuple) -> int:
     return await DataBase.execute('''INSERT INTO questions \
     (animal_id, callback_name, question, keyboard, answer_yes, cb_yes, answer_no, cb_no) \
     VALUES($1, $2, $3, $4, $5, $6, $7, $8)''', *qt, execute=True)
+
+
+async def add_question(qt: tuple) -> int:
+    return await DataBase.execute('''INSERT INTO questions \
+    (animal_id, callback_name, question, keyboard, answer_yes, cb_yes, answer_no, cb_no, answer_no_2, cb_no_2) \
+    VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)''', *qt, execute=True)
 
 
 async def animal_id_by_callback(cb: str) -> str:
@@ -75,19 +81,19 @@ async def update_animal_name(ins: tuple) -> int:
 
 async def update_animal_description(ins: tuple) -> int:
     return await DataBase.execute('''UPDATE animals \
-    SET description= $2 WHERE name= $1''',
+    SET description= $2 WHERE callback= $1''',
                                   *ins, execute=True)
 
 
 async def update_animal_photo(ins: tuple) -> int:
     return await DataBase.execute('''UPDATE animals \
-    SET photo_id= $2 WHERE name= $1''',
+    SET photo_id= $2 WHERE callback= $1''',
                                   *ins, execute=True)
 
 
 async def update_animal_audio(ins: tuple) -> int:
     return await DataBase.execute('''UPDATE animals \
-    SET audio_id= $2 WHERE name= $1''',
+    SET audio_id= $2 WHERE callback= $1''',
                                   *ins, execute=True)
 
 

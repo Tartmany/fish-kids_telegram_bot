@@ -56,7 +56,7 @@ async def answers_from_db(cb: str) -> list:
 # и формирует список ответов для кнопок клавиатуры
 # для животного с дополнительными вопросами и ответами
 async def keyboard_from_db_questions(cb: str) -> list:
-    result = await DataBase.execute('''SELECT cb_yes, cb_no FROM questions \
+    result = await DataBase.execute('''SELECT cb_yes, cb_no, cb_no_2 FROM questions \
                              WHERE callback_name= $1 ''', cb, fetchrow=True)
     animal = []
     for i in result:
@@ -79,6 +79,15 @@ async def answer_yes_from_db(cb: str) -> str:
 async def answer_no_from_db(cb: str) -> str:
     result = await DataBase.execute('''SELECT answer_no FROM questions \
                              WHERE cb_no= $1''', cb, fetchval=True)
+    return result
+
+
+# Эта функция отправляет запрос в базу данных по callback.data
+# и возвращает второй неправильный ответ на вопрос
+# для животного с дополнительными вопросами и ответами
+async def answer_no_2_from_db(cb: str) -> str:
+    result = await DataBase.execute('''SELECT answer_no_2 FROM questions \
+                             WHERE cb_no_2= $1''', cb, fetchval=True)
     return result
 
 

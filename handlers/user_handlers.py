@@ -2,7 +2,9 @@
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from keyboards.users_kb import create_aquarium_keyboard, create_animal_keyboard
+from aiogram.fsm.context import FSMContext
+from states.states import FSMUser
+from keyboards.users_kb import create_aquarium_keyboard, create_animal_keyboard, return_aquarium_keyboard
 import database
 from lexic.lexic import LEXICON
 import filters
@@ -59,7 +61,9 @@ async def process_feedback_command(message: Message):
 # обитателей аквариума и клавиатуру с кнопками-цифрами для выбора обитателя
 @router.message(filters.NumberInAquariumNumbers(),
                 lambda x: x.text and x.text.isdigit(), flags=flagmsg)
-async def aquarium_number_answer(message: Message):
+async def aquarium_number_answer(message: Message, state: FSMContext):
+    await state.set_state(FSMUser.fill_animal)
+    await state.update_data(aquarium=message.text)
     photo_result = await database.photo_collage(message.text)
     animal_result = await database.buttons_for_keyboard(message.text)
     await message.answer_photo(photo_result,
@@ -68,8 +72,9 @@ async def aquarium_number_answer(message: Message):
 
 # Этот хэндлер будет срабатывать на нажатие инлайн-кнопки с номерами животных,
 # у которых есть дополнительные вопросы c ответами
-@router.callback_query(filters.AnimalInQuestionWithAnswer(), flags=flagcb)
-async def photo_text_question_answer(callback: CallbackQuery):
+@router.callback_query(filters.AnimalInQuestionWithAnswer(),
+                       flags=flagcb)
+async def photo_text_question_answer(callback: CallbackQuery, state: FSMContext):
     animal = await database.animal_from_db(callback.data)
     question = await database.question_from_db(callback.data)
     answers = await database.answers_from_db(callback.data)
@@ -87,41 +92,77 @@ async def photo_text_question_answer(callback: CallbackQuery):
 # Этот хэндлер будет срабатывать на нажатие инлайн-кнопки с номерами животных,
 # у которых есть дополнительные вопросы без ответов
 @router.callback_query(filters.AnimalInQuestions(), flags=flagcb)
-async def photo_text_question(callback: CallbackQuery):
+async def photo_text_question(callback: CallbackQuery, state: FSMContext):
     animal = await database.animal_from_db(callback.data)
     question = await database.question_from_db(callback.data)
-
+    a_dict = await state.get_data()
+    number = a_dict["aquarium"]
     await callback.message.answer_photo(photo=animal[2],
                                         caption=animal[0])
     await callback.message.answer(text=animal[1])
-    await callback.message.answer(text=question)
+    await callback.message.answer(text=question,
+                                  reply_markup=return_aquarium_keyboard(number))
     await callback.answer()
 
 
 # Этот хэндлер будет срабатывать на нажатие инлайн-кнопки с номерами животных,
 # не вошедших в первые две категории
 @router.callback_query(filters.AnimalInAnimals(), flags=flagcb)
-async def photo_and_text(callback: CallbackQuery):
+async def photo_and_text(callback: CallbackQuery, state: FSMContext):
     animal = await database.animal_from_db(callback.data)
+    a_dict = await state.get_data()
+    number = a_dict["aquarium"]
     await callback.message.answer_photo(photo=animal[2],
                                         caption=animal[0])
-    await callback.message.answer(text=animal[1])
+    await callback.message.answer(text=animal[1],
+                                  reply_markup=return_aquarium_keyboard(number))
     await callback.answer()
 
 
 # Этот хэндлер будет срабатывать на нажатие инлайн-кнопки с правильными ответами
 # для животных, у которых есть вопросы с ответами
 @router.callback_query(filters.AnswerInYesAnswers(), flags=flagcb_save)
-async def correct_answer(callback: CallbackQuery):
+async def correct_answer(callback: CallbackQuery, state: FSMContext):
     answer = await database.answer_yes_from_db(callback.data)
-    await callback.message.answer(text=answer)
+    a_dict = await state.get_data()
+    number = a_dict["aquarium"]
+    await callback.message.answer(text=answer,
+                                  reply_markup=return_aquarium_keyboard(number))
     await callback.answer()
 
 
 # Этот хэндлер будет срабатывать на нажатие инлайн-кнопки с неправильными ответами
 # для животных, у которых есть вопросы с ответами
 @router.callback_query(filters.AnswerInNoAnswers(), flags=flagcb_save)
-async def wrong_answer(callback: CallbackQuery):
+async def wrong_answer(callback: CallbackQuery, state: FSMContext):
     answer = await database.answer_no_from_db(callback.data)
-    await callback.message.answer(text=answer)
+    a_dict = await state.get_data()
+    number = a_dict["aquarium"]
+    await callback.message.answer(text=answer,
+                                  reply_markup=return_aquarium_keyboard(number))
     await callback.answer()
+
+
+# Этот хэндлер будет срабатывать на нажатие инлайн-кнопки со вторыми неправильными ответами
+# для животных, у которых есть вопросы с тремя ответами
+@router.callback_query(filters.AnswerInNo2Answers(), flags=flagcb_save)
+async def wrong_answer(callback: CallbackQuery, state: FSMContext):
+    answer = await database.answer_no_2_from_db(callback.data)
+    a_dict = await state.get_data()
+    number = a_dict["aquarium"]
+    await callback.message.answer(text=answer,
+                                  reply_markup=return_aquarium_keyboard(number))
+    await callback.answer()
+
+
+# Этот хэндлер будет срабатывать на кнопку возврата к аквариуму
+# и выдвать пользователю коллаж из фотографий
+# обитателей аквариума и клавиатуру с кнопками-цифрами для выбора обитателя
+@router.callback_query(filters.NumberInAquariumNumbersCb(), flags=flagcb)
+async def aquarium_number_answer(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FSMUser.fill_animal)
+    await state.update_data(aquarium=callback.data)
+    photo_result = await database.photo_collage(callback.data)
+    animal_result = await database.buttons_for_keyboard(callback.data)
+    await callback.message.answer_photo(photo_result,
+                                        reply_markup=create_aquarium_keyboard(2, animal_result))

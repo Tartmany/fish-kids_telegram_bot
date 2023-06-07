@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.filters import Text
 from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
 import pandas as pd
 
 from database.update_db_queries import load_updates, delete_updates
@@ -16,7 +17,8 @@ admins_ids = config.tg_bot.admin_ids
 # Этот хэндлер будет срабатывать на если пользователь есть в списке
 # админов и он отправил сообщение "Обновить базу"
 @router.message(F.from_user.id.in_(admins_ids), Text(startswith='обновить базу', ignore_case=True))
-async def admin_answer(message: Message):
+async def admin_answer(message: Message, state: FSMContext):
+    await state.clear()
     await message.answer(text='Что будем менять?',
                          reply_markup=create_admin_keyboard())
 
